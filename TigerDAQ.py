@@ -40,7 +40,7 @@ class Plot2DHistogram(FigureCanvasQTAgg):
                      'size': 9,
                     }
         ######### Statistical information on the graph ################
-        statistics_text = AnchoredText( s='MinX: --\nMinY: --\nMaxX: --\nMaxY: --\nMeanX: --\nMeanY: --\nSd_X: --\nSd_Y: --',
+        statistics_text = AnchoredText( s='Entries: --\nMinX: --\nMinY: --\nMaxX: --\nMaxY: --\nMeanX: --\nMeanY: --\nSd_X: --\nSd_Y: --',
                                         loc=1, frameon=False, prop=self.Afont)
         self.ax.add_artist(statistics_text)
         ##################### 2D histogram ############################
@@ -55,7 +55,7 @@ class Plot2DHistogram(FigureCanvasQTAgg):
         self.ax.autoscale_view()
         self.ax.minorticks_on()
         self.ax.grid()
-# +++++++++++++++++++++++++++ update2Hist +++++++++++++++++#+++++++++++
+# +++++++++++++++++++++++++++ update2Hist +++++++++++++++++++++++++++++
     def update2dHist(self, data):
         ############### Clear 2D histogram data #######################
         self.ax.clear()
@@ -65,6 +65,7 @@ class Plot2DHistogram(FigureCanvasQTAgg):
         try:
             ############## Calculate X maximum ########################
             x_max = np.max(self.X)
+            Data_Entries = np.size(self.Y)
             ############# Calculate X statistics ######################
             Data_min_X = round(np.min(self.X),2)
             Data_max_X = round(np.max(self.X),2)
@@ -76,14 +77,15 @@ class Plot2DHistogram(FigureCanvasQTAgg):
             Data_mean_Y = round(np.mean(self.Y),2)
             Data_std_Y = round(np.std(self.Y),2)
             ##### Statistical information on the graph ################
-            statistics_text = AnchoredText( s='MinX: {}\nMinY: {}\nMaxX: {}\nMaxY: {}\nMeanX: {}\nMeanY: {}\nSd_X: {}\nSd_Y: {}'.format(Data_min_X,
-                                                                                                                                        Data_min_Y,
-                                                                                                                                        Data_max_X,
-                                                                                                                                        Data_max_Y,
-                                                                                                                                        Data_mean_X,
-                                                                                                                                        Data_mean_Y,
-                                                                                                                                        Data_std_X,
-                                                                                                                                        Data_std_Y),
+            statistics_text = AnchoredText( s='Entries: {}\nMinX: {}\nMinY: {}\nMaxX: {}\nMaxY: {}\nMeanX: {}\nMeanY: {}\nSd_X: {}\nSd_Y: {}'.format(Data_Entries,
+                                                                                                                                                     Data_min_X,
+                                                                                                                                                     Data_min_Y,
+                                                                                                                                                     Data_max_X,
+                                                                                                                                                     Data_max_Y,
+                                                                                                                                                     Data_mean_X,
+                                                                                                                                                     Data_mean_Y,
+                                                                                                                                                     Data_std_X,
+                                                                                                                                                     Data_std_Y),
                                             loc=1, frameon=False, prop=self.Afont)
             self.ax.add_artist(statistics_text)
             ########### Update 2D histogram data ######################
@@ -127,7 +129,7 @@ class PlotHistogram(FigureCanvasQTAgg):
         ############### Initialization histogram ######################
         self.ax.hist([], color = 'green', edgecolor = 'black')
         ######### Statistical information on the graph ################
-        statistics_text = AnchoredText( s='Min: --\nMax: --\nMean: --\nMedian: --\nSd: --',
+        statistics_text = AnchoredText( s='Entries: --\nMin: --\nMax: --\nMean: --\nMedian: --\nSd: --',
                                         loc=1, frameon=False, prop=self.Afont)
         self.ax.add_artist(statistics_text)
         ################## Histogram labels ##########################
@@ -140,13 +142,14 @@ class PlotHistogram(FigureCanvasQTAgg):
         ############### Clear 2D histogram data #######################
         self.ax.clear()
         ################# Calculate statistics ########################
+        Data_Entries = np.size(data)
         Data_min = round(np.min(data),2)
         Data_max = round(np.max(data),2)
         Data_mean = round(np.mean(data),2)
         Data_median = round(np.median(data),2)
         Data_std = round(np.std(data),2)
         ######### Statistical information on the graph ################
-        statistics_text = AnchoredText( s='Min: {}\nMax: {}\nMean: {}\nMedian: {}\nSd: {}'.format(Data_min, Data_max, Data_mean, Data_median, Data_std),
+        statistics_text = AnchoredText( s='Entries: {}\nMin: {}\nMax: {}\nMean: {}\nMedian: {}\nSd: {}'.format(Data_Entries, Data_min, Data_max, Data_mean, Data_median, Data_std),
                                         loc=1, frameon=False, prop=self.Afont)
         self.ax.add_artist(statistics_text)
         ################# Update Histogram data #######################
