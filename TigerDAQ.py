@@ -246,8 +246,15 @@ class ReadDataThread(QThread):
                 efine = (int_x & 0x3FF)
         ######### from 16bit Tcourse data take 10bit ##################
                 #tcoarse = int(string_inv[24:][:10],2)
+        ######### calculate ToT ##################
+                if (((int_x >> 20)&0x3FF) - ((int_x >> 30)&0x3FF)) > 0:
+                    ToT=(((int_x >> 20)&0x3FF) - ((int_x >> 30)&0x3FF))
+                else:
+                    ToT=(((int_x >> 20)&0x3FF) - ((int_x >> 30)&0x3FF)) + 1024
+
+                #ToT = (tcoarse-tfine)-(ecoarse-efine)
         ########## Correct reverse logic efine value ##################
-                efine = 1023 - efine
+                #efine = 1023 - efine
         ######## Transfer parameters to global buffer #################
                 if "TIGER:{}".format(tigerId) in DATA.keys():
                     DATA["TIGER:{}".format(tigerId)]['ch'].append(ch)
@@ -256,7 +263,7 @@ class ReadDataThread(QThread):
                     DATA["TIGER:{}".format(tigerId)]['ecoarse'].append(ecoarse)
                     DATA["TIGER:{}".format(tigerId)]['tfine'].append(tfine)
                     DATA["TIGER:{}".format(tigerId)]['efine'].append(efine)
-                    DATA["TIGER:{}".format(tigerId)]['ToT'].append(abs(ecoarse-tcoarse))
+                    DATA["TIGER:{}".format(tigerId)]['ToT'].append(ToT)
                 else:
                     DATA["TIGER:{}".format(tigerId)] = {'ch'      : [],
                                                         'tacId'   : [],
@@ -273,7 +280,7 @@ class ReadDataThread(QThread):
                     DATA["TIGER:{}".format(tigerId)]['tfine'].append(tfine)
                     DATA["TIGER:{}".format(tigerId)]['efine'].append(efine)
 
-                    DATA["TIGER:{}".format(tigerId)]['ToT'].append(abs(ecoarse-tcoarse))
+                    DATA["TIGER:{}".format(tigerId)]['ToT'].append(ToT)
         ############# Debugging of data reading #######################
                 if debug:
                     print('******************')
@@ -284,6 +291,7 @@ class ReadDataThread(QThread):
                     print('Ecoarse: {}'.format(ecoarse))
                     print('Tfine: {}'.format(tfine))
                     print('Efine: {}'.format(efine))
+                    print('ToT: {}'.format(ToT))
         ############### Calculate current time ########################
                 # Time= Framecount*204,8ns + Tcoarse*6,25ns
                 if ((int_x >> 30) & 0xFFFF) < 2^15:
