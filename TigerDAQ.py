@@ -1,7 +1,8 @@
 from PyQt5.QtWidgets import (QMainWindow, QApplication, QWidget,
                              QMessageBox, QPushButton, QAction, QVBoxLayout,
                              QHBoxLayout, QDockWidget, QFileDialog, QTabWidget,
-                             QGridLayout, QGroupBox, QLineEdit, QLabel, QComboBox, QProgressBar)
+                             QGridLayout, QGroupBox, QLineEdit, QLabel, QComboBox,
+                             QCheckBox, QProgressBar)
 from PyQt5.QtGui import QIcon, QPalette, QColor, QDoubleValidator, QIntValidator
 from PyQt5.QtCore import Qt, QDir, QThread, pyqtSignal
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT
@@ -522,13 +523,10 @@ mapping = { 'Chip1_Ch0' : 111,
 
 # Global data buffer
 DATA = {}
-# Global control of threads (run & stop)
-_Run  = False
+# thread controll
+_Run = False
 # Control debugging
 debug = False
-
-# save txt file
-saveFile = False
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~ Plot 2D Histogram ~~~~~~~~~~~~~~~~~~~~~~~~~~
 class Plot2DHistogram(FigureCanvasQTAgg):
@@ -695,41 +693,31 @@ class PlotHistogram(FigureCanvasQTAgg):
 # ~~~~~~~~~~~~~~~~~~~~~~~~~ Read Data Thread ~~~~~~~~~~~~~~~~~~~~~~~~~~
 class ReadDataThread(QThread):
     progress = pyqtSignal(float)
+    finished = pyqtSignal()
 # +++++++++++++++++++++++++++++__init__ +++++++++++++++++++++++++++++++
-    def __init__(self, path, delay, parent=None):
+    def __init__(self, path, outputFileOnOff, parent=None):
         super(ReadDataThread, self).__init__()
         self.path = path
-        ################### Set delay time ############################
-        try:
-            self.delay = int(float(delay)*1000)
-        except ValueError:
-            self.delay = int(float(delay.replace(",", "."))*1000)
+        self.outputFileOnOff = outputFileOnOff
 # +++++++++++++++++++++++++++++++ run +++++++++++++++++++++++++++++++++
     def run(self):
-        #while _Run:
+        global _Run
         ###################### Read data ##############################
         self.datFileReading()
         _Run = False
-        #################### Simulate data ############################
-            #self.simulateData()
-            #QThread.msleep(self.delay)
 # ++++++++++++++++++++++++ DAT file reading +++++++++++++++++++++++++++
     def datFileReading(self, outputFileName="path.datout.txt"):
         ################ get info about file ##########################
         statinfo = os.stat(self.path)
         outputFileName = self.path.split('.dat')[0] + '.datout.txt'
-
         ############## Create output text file ########################
-        if saveFile:
+        if self.outputFileOnOff:
             f = open(outputFileName, 'w')
             f.close()
-
-        self.thr_scan_matrix = np.zeros((8, 64))  # Tiger, Channel
-
         ################ Read dat file data ###########################
         with open(self.path, 'rb') as f:
             for i in range(0, int(statinfo.st_size / 8)):
-                percent = i*100/int(statinfo.st_size / 8)
+                percent = i*100/int(statinfo.st_size / 8)+1
                 self.progress.emit(percent)
         ################## Thread breaker #############################
                 if _Run == False:
@@ -744,7 +732,6 @@ class ReadDataThread(QThread):
                     inverted.append(string[(i-1)*8:i*8])
                 string_inv="".join(inverted)
                 int_x = int(string_inv,2)
-                raw = "{:064b}  ".format(int_x)
         ###### Decoding raw data and create text format ###############
                 if (((int_x & 0xFF00000000000000) >> 59) == 0x04):  # It's a frameword
                     s = 'TIGER: ' + '%01X ' % ((int_x >> 56) & 0x7) + 'HB: ' + 'Framecount: %08X ' % (
@@ -760,114 +747,60 @@ class ReadDataThread(QThread):
                                 (int_x >> 30) & 0xFFFF) + 'Ecoarse: %03X ' % (
                                 (int_x >> 20) & 0x3FF) + 'Tfine: %03X ' % ((int_x >> 10) & 0x3FF) + 'Efine: %03X \n' % (
                                 int_x & 0x3FF)
-                    self.thr_scan_matrix[(int_x >> 56) & 0x7, int(int_x >> 48) & 0x3F] = self.thr_scan_matrix[(int_x >> 56) & 0x7, int(int_x >> 48) & 0x3F] + 1
         ############ Decoding raw and separation ######################
                 try:
                     tigerId = ((int_x >> 56) & 0x7)
                     ch = ((int_x >> 48) & 0x3F)
-                    ch = mapping['Chip{}_Ch{}'.format(tigerId+1, ch)]
-                    print('TIGER:{} -- Ch{}'.format(tigerId, ch))
+                    strip = mapping['Chip{}_Ch{}'.format(tigerId+1, ch)]
 
                     tacId = ((int_x >> 46) & 0x3)
                     tcoarse = ((int_x >> 30) & 0xFFFF)
                     ecoarse = ((int_x >> 20) & 0x3FF)
                     tfine = ((int_x >> 10) & 0x3FF)
                     efine = (int_x & 0x3FF)
-        ######### calculate ToT ##################
-                    if (((int_x >> 20)&0x3FF) - ((int_x >> 30)&0x3FF)) > 0:
-                        ToT=(((int_x >> 20)&0x3FF) - ((int_x >> 30)&0x3FF))
-                    else:
-                        ToT=(((int_x >> 20)&0x3FF) - ((int_x >> 30)&0x3FF)) + 1023
         ########## Correct reverse logic efine value ##################
                     efine = 1023 - efine
         ######## Transfer parameters to global buffer #################
                     if "TIGER:{}".format(tigerId) in DATA.keys():
-                        DATA["TIGER:{}".format(tigerId)]['ch'].append(ch)
+                        DATA["TIGER:{}".format(tigerId)]['strip'].append(strip)
                         DATA["TIGER:{}".format(tigerId)]['tacId'].append(tacId)
                         DATA["TIGER:{}".format(tigerId)]['tcoarse'].append(tcoarse)
                         DATA["TIGER:{}".format(tigerId)]['ecoarse'].append(ecoarse)
                         DATA["TIGER:{}".format(tigerId)]['tfine'].append(tfine)
                         DATA["TIGER:{}".format(tigerId)]['efine'].append(efine)
-                        DATA["TIGER:{}".format(tigerId)]['ToT'].append(ToT)
                     else:
-                        DATA["TIGER:{}".format(tigerId)] = {'ch'      : [],
+                        DATA["TIGER:{}".format(tigerId)] = {'strip'   : [],
                                                             'tacId'   : [],
                                                             'tcoarse' : [],
                                                             'ecoarse' : [],
                                                             'tfine'   : [],
-                                                            'efine'   : [],
-                                                            'ToT'     : []}
+                                                            'efine'   : []
+                                                            }
 
-                        DATA["TIGER:{}".format(tigerId)]['ch'].append(ch)
+                        DATA["TIGER:{}".format(tigerId)]['strip'].append(strip)
                         DATA["TIGER:{}".format(tigerId)]['tacId'].append(tacId)
                         DATA["TIGER:{}".format(tigerId)]['tcoarse'].append(tcoarse)
                         DATA["TIGER:{}".format(tigerId)]['ecoarse'].append(ecoarse)
                         DATA["TIGER:{}".format(tigerId)]['tfine'].append(tfine)
                         DATA["TIGER:{}".format(tigerId)]['efine'].append(efine)
-
-                        DATA["TIGER:{}".format(tigerId)]['ToT'].append(ToT)
         ############# Debugging of data reading #######################
                     if debug:
                         print('******************')
                         print('TIGER: {}'.format(tigerId))
-                        print('Strip: {}'.format(ch))
+                        print('Strip: {}'.format(strip))
                         print('tacId: {}'.format(tacId))
                         print('Tcoarse: {}'.format(tcoarse))
                         print('Ecoarse: {}'.format(ecoarse))
                         print('Tfine: {}'.format(tfine))
                         print('Efine: {}'.format(efine))
-                        print('ToT: {}'.format(ToT))
-        ############### Calculate current time ########################
-                    # Time= Framecount*204,8ns + Tcoarse*6,25ns
-                    if ((int_x >> 30) & 0xFFFF) < 2^15:
-                        Time = ((int_x >> 15) & 0xFFFF) * 204800 + ((int_x >> 30) & 0xFFFF) * 6.25
-                    
-                    if ((int_x >> 30) & 0xFFFF) > 2^15:
-                        Time= ((int_x >> 15) & 0xFFFF) * 204800 + (((int_x >> 30) & 0xFFFF)-2^15) * 6.25
         ############### Write data to log file ########################
-                    if saveFile:
+                    if self.outputFileOnOff:
                         with open(outputFileName, 'a') as ff:
                             #ff.write("{}     {}".format(raw, s))
                             ff.write("{}".format(s))
                 except KeyError:
                     pass
-        #################### Thread delay #############################
-                #QThread.msleep(self.delay)
-# ++++++++++++++++++++++++ Set refresh time +++++++++++++++++++++++++++
-    def setRefreshTime(self, delay):
-        try:
-            self.delay = int(float(delay)*1000)
-        except ValueError:
-            try:
-                self.delay = int(float(delay.replace(",", "."))*1000)
-            except ValueError:
-                pass
-
-# ~~~~~~~~~~~~~~~~~~~~~~~~ Monitoring Thread ~~~~~~~~~~~~~~~~~~~~~~~~~~
-class MonitoringThread(QThread):
-    change_value = pyqtSignal()
-# +++++++++++++++++++++++++++++__init__ +++++++++++++++++++++++++++++++
-    def __init__(self, delay, parent=None):
-        super(MonitoringThread, self).__init__()
-        try:
-            self.delay = int(float(delay)*1000)
-        except ValueError:
-            self.delay = int(float(delay.replace(",", "."))*1000)
-# +++++++++++++++++++++++++++++++ run +++++++++++++++++++++++++++++++++
-    def run(self):
-        while _Run:
-            QThread.msleep(self.delay)
-            self.change_value.emit()
-# ++++++++++++++++++++++++ Set refresh time +++++++++++++++++++++++++++
-    def setRefreshTime(self, delay):
-        try:
-            self.delay = int(float(delay)*1000)
-        except ValueError:
-            try:
-                self.delay = int(float(delay.replace(",", "."))*1000)
-            except ValueError:
-                pass
-
+        self.finished.emit()
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ App ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 class App(QMainWindow):
 # +++++++++++++++++++++++++++++__init__ +++++++++++++++++++++++++++++++
@@ -878,9 +811,13 @@ class App(QMainWindow):
         self.setGeometry(0, 0, 1500, 800)
         self.statuseMessage("")
 
-        self.selectedPar = 'tcoarse'
+        self.selectedPar = 'efine'
         self.selectedTiger = 'TIGER(0-1)'
         self.OpenfilePath = ''
+        self.parameters = ['tcoarse','ecoarse','tfine','efine']
+
+        self.selectedstrip = 0
+        self.outputFileOnOff = False
 
         self.initUI()
 # +++++++++++++++++++++++++++++ initUI ++++++++++++++++++++++++++++++++
@@ -928,7 +865,9 @@ class App(QMainWindow):
         toolbar.addAction(aboutButton)
         toolbar.addSeparator()
         toolbar.addAction(testAct)
-################## Set view widgets on dockedWidget ###################
+########################## Set view widgets ###########################
+        MainWidget = QWidget()
+        MainHLayout = QHBoxLayout()
         ##################### Create tabs #############################
         self.tabs = QTabWidget()
 
@@ -938,12 +877,11 @@ class App(QMainWindow):
         viewWidgetsPage1_VLayout = QVBoxLayout()
         viewWidgetsPage2_GridLayout = QGridLayout()
 
-        # "ToT" Time over Threshold
         self.HistPlot = PlotHistogram(title="Hist",Xlabel=self.selectedPar,Ylabel="Counts")
         viewWidgetsPage1_VLayout.addWidget(self.HistPlot)
 
-        #HistPlot_toolbar = NavigationToolbar2QT(self.HistPlot, self)
-        #viewWidgetsPage1_VLayout.addWidget(HistPlot_toolbar)
+        HistPlot_toolbar = NavigationToolbar2QT(self.HistPlot, self)
+        viewWidgetsPage1_VLayout.addWidget(HistPlot_toolbar)
         self.viewWidgetsPage1.setLayout(viewWidgetsPage1_VLayout)
 
 
@@ -955,126 +893,100 @@ class App(QMainWindow):
         self.viewWidgetsPage1.setLayout(viewWidgetsPage1_VLayout)
 
         ##############################
-        self.TwoDHistPlot1 = Plot2DHistogram(title="Tcourse 2D hist",Xlabel="Strips",Ylabel="Tcourse")
-        self.TwoDHistPlot2 = Plot2DHistogram(title="Ecoarse 2D hist",Xlabel="Strips",Ylabel="Ecoarse")
-        self.TwoDHistPlot3 = Plot2DHistogram(title="Tfine 2D hist",Xlabel="Strips",Ylabel="Tfine")
-        self.TwoDHistPlot4 = Plot2DHistogram(title="Efine 2D hist",Xlabel="Strips",Ylabel="Efine")
+        self.Tcourse = Plot2DHistogram(title="Tcourse 2D hist",Xlabel="Strips",Ylabel="Tcourse")
+        self.Ecoarse = Plot2DHistogram(title="Ecoarse 2D hist",Xlabel="Strips",Ylabel="Ecoarse")
+        self.Tfine = Plot2DHistogram(title="Tfine 2D hist",Xlabel="Strips",Ylabel="Tfine")
+        self.Efine = Plot2DHistogram(title="Efine 2D hist",Xlabel="Strips",Ylabel="Efine")
 
-
-        viewWidgetsPage2_GridLayout.addWidget(self.TwoDHistPlot1,0,0)
-        viewWidgetsPage2_GridLayout.addWidget(self.TwoDHistPlot2,0,1)
-        viewWidgetsPage2_GridLayout.addWidget(self.TwoDHistPlot3,1,0)
-        viewWidgetsPage2_GridLayout.addWidget(self.TwoDHistPlot4,1,1)
+        viewWidgetsPage2_GridLayout.addWidget(self.Tcourse,0,0)
+        viewWidgetsPage2_GridLayout.addWidget(self.Ecoarse,0,1)
+        viewWidgetsPage2_GridLayout.addWidget(self.Tfine,1,0)
+        viewWidgetsPage2_GridLayout.addWidget(self.Efine,1,1)
 
         self.viewWidgetsPage2.setLayout(viewWidgetsPage2_GridLayout)
         ##############################
-
         self.tabs.addTab(self.viewWidgetsPage1, "All in one")
         self.tabs.addTab(self.viewWidgetsPage2, "Additional")
-        self.setCentralWidget(self.tabs)
-
-        viewWidgetsVlayout = QVBoxLayout()
-
-        self.tabs.setLayout(viewWidgetsVlayout)
-        self.controlDockWidget = QDockWidget('Monitoring')
-        self.controlDockWidget.setWidget(self.tabs)
-        self.addDockWidget(Qt.RightDockWidgetArea, self.controlDockWidget)
-################# Set control widgets on dockedWidget #################
-        self.controlWidgets = QWidget()
-        controlWidgetsVlayout = QVBoxLayout()
-
+######################## Set control widgets ##########################
         DAQ_setupGroupbox = QGroupBox("DAQ setup")
+        DAQ_setupGroupbox.setAlignment(Qt.AlignCenter)
 
-        DAQ_VLayout = QVBoxLayout()
+        setup_VLayout = QVBoxLayout()
+        setup_HLayout = QHBoxLayout()
         ################ Dat file path label ##########################
-        datFilepathLabel = QLabel("Current DAT file path")
+        datFilepathLabel = QLabel("File path")
         ################ Current path field ###########################
         self.selectedPath = QLineEdit()
         self.selectedPath.setAlignment(Qt.AlignCenter)
         self.selectedPath.setReadOnly(True)
         self.selectedPath.setToolTip("<h5>Current path")
-        ############### DAT file path Layout ##########################
-        datFilepathVLayout = QVBoxLayout()
-        datFilepathVLayout.addWidget(datFilepathLabel)
-        datFilepathVLayout.addWidget(self.selectedPath)
-        #################### Delay label ##############################
-        delayLabel = QLabel("Delay [s]")
-        #################### Delay Layout #############################
-        delayHLayout = QHBoxLayout()
-        ################# Refresh time field ##########################
-        validator = QDoubleValidator()
-        validator.setRange(1.0, 60.0, 1)
-        self.delay = QLineEdit()
-        self.delay.textChanged.connect(self.setRefreshTime)
-        self.delay.setAlignment(Qt.AlignCenter)
-        self.delay.setValidator(validator)
-        self.delay.setText('5')
-        ############## Parameter selector Layout ######################
-        parameterSelectorHLayout = QHBoxLayout()
+        ################# Save output file ############################
+        saveOutputFileLabel = QLabel("Save output file")
+
+        self.saveOutputFileCheckBox = QCheckBox()
+        self.saveOutputFileCheckBox.setChecked(False)
+        self.saveOutputFileCheckBox.stateChanged.connect(self.saveOutputFile)
+        ################## Labels Vlayout #############################
+        setupLabelsVLayout = QVBoxLayout()
+        ################## Widgets Vlayout ############################
+        setupWidgetsVLayout = QVBoxLayout()
         ############## Parameter selector label #######################
         parameterSelectorLabel = QLabel("Parameter selector")
-        ############ Set widgets on delay layouts #####################
-        delayHLayout.addWidget(self.delay)
-        delayHLayout.addWidget(delayLabel)
-        ################ Tiger selector Layout ########################
-        tigerSelectorHLayout = QHBoxLayout()
         ################ Tiger selector label #########################
-        tigerSelectorLabel = QLabel("Tiger selector")
+        tigerSelectorLabel = QLabel("TIGER selector")
         ###############################################################
         # Create combobox and add items.
         self.tigerGroupSelector = QComboBox()
         self.tigerGroupSelector.addItems(['TIGER(0-1)','TIGER(2-3)','TIGER(4-5)'])
         self.tigerGroupSelector.currentIndexChanged.connect(self.chooseTigerGroup)
-        ##### Set widgets on tiger Group Selector layouts #############
-        tigerSelectorHLayout.addWidget(self.tigerGroupSelector)
-        tigerSelectorHLayout.addWidget(tigerSelectorLabel)
-        ################ Channel selector Layout ######################
-        channelSelectorHLayout = QHBoxLayout()
         ################# Channel selector label ######################
         channelSelectorLabel = QLabel("Channel selector")
         #################### Channel selector #########################
         validator = QIntValidator()
         validator.setRange(1, 124)
         self.selectedCh = QLineEdit()
-        self.selectedCh.textChanged.connect(self.setRefreshTime)
         self.selectedCh.setAlignment(Qt.AlignCenter)
         self.selectedCh.setValidator(validator)
         self.selectedCh.setText('')
-        ##### Set widgets on tiger Group Selector layouts #############
-        channelSelectorHLayout.addWidget(self.selectedCh)
-        channelSelectorHLayout.addWidget(channelSelectorLabel)
+        self.selectedCh.editingFinished.connect(self.selectedStripChanged)
         ###############################################################
         # Create combobox and add items.
         self.parameterSelector = QComboBox()
-        self.parameterSelector.addItems(['tcoarse','ecoarse','tfine','efine','ToT'])
+        self.parameterSelector.addItems(self.parameters)
+        self.parameterSelector.setCurrentIndex(self.parameters.index(self.selectedPar))
         self.parameterSelector.currentIndexChanged.connect(self.chooseParameter)
-        ####### Set widgets on parameter Selector layouts #############
-        parameterSelectorHLayout.addWidget(self.parameterSelector)
-        parameterSelectorHLayout.addWidget(parameterSelectorLabel)
         ###############################################################
-        DAQ_VLayout.addLayout(datFilepathVLayout)
-        DAQ_VLayout.addLayout(delayHLayout)
-        DAQ_VLayout.addLayout(tigerSelectorHLayout)
-        DAQ_VLayout.addLayout(parameterSelectorHLayout)
-        DAQ_VLayout.addLayout(channelSelectorHLayout)
-        DAQ_setupGroupbox.setLayout(DAQ_VLayout)
 
-        Trigger_setupGroupbox = QGroupBox("Triger setup")
-        Trigger_setupGroupbox.setCheckable(True)
-        Trigger_setupGroupbox.setChecked(False)
+        setupLabelsVLayout.addWidget(datFilepathLabel)
+        setupLabelsVLayout.addWidget(saveOutputFileLabel)
+        setupLabelsVLayout.addWidget(parameterSelectorLabel)
+        setupLabelsVLayout.addWidget(tigerSelectorLabel)
+        setupLabelsVLayout.addWidget(channelSelectorLabel)
 
-        controlWidgetsVlayout.addWidget(DAQ_setupGroupbox)
-        controlWidgetsVlayout.addWidget(Trigger_setupGroupbox)
 
-        self.controlWidgets.setLayout(controlWidgetsVlayout)
-        self.controlDockWidget = QDockWidget('Control')
-        self.controlDockWidget.setWidget(self.controlWidgets)
-        self.addDockWidget(Qt.LeftDockWidgetArea, self.controlDockWidget)
+        setupWidgetsVLayout.addWidget(self.selectedPath)
+        setupWidgetsVLayout.addWidget(self.saveOutputFileCheckBox)
+        setupWidgetsVLayout.addWidget(self.tigerGroupSelector)
+        setupWidgetsVLayout.addWidget(self.parameterSelector)
+        setupWidgetsVLayout.addWidget(self.selectedCh)
+
+        setup_HLayout.addLayout(setupWidgetsVLayout)
+        setup_HLayout.addLayout(setupLabelsVLayout)
+
+        setup_VLayout.addLayout(setup_HLayout)
+        setup_VLayout.addStretch(1)
+        DAQ_setupGroupbox.setLayout(setup_VLayout)
+        ############ Set widgets on main Layout #######################
+        MainHLayout.addWidget(DAQ_setupGroupbox,0)
+        MainHLayout.addWidget(self.tabs,100)
+         ########### Set main widgets on window #######################
+        MainWidget.setLayout(MainHLayout)
+        self.setCentralWidget(MainWidget)
 ############################# ProgressBar  ############################
-        self.progressBar = QProgressBar()   
+        self.progressBar = QProgressBar()
         self.statusBar().addPermanentWidget(self.progressBar)
         self.progressBar.setValue(0)
-        self.progressBar.setFormat("%.02f %%" % 0)
+        #self.progressBar.setFormat("%.02f %%" % 0)
 
         self.show()
 # +++++++++++++++++++++++++++++ Center ++++++++++++++++++++++++++++++++
@@ -1131,14 +1043,11 @@ class App(QMainWindow):
                 except AttributeError:
                     pass
         ################# Data reading thread #########################
-                self.thread1 = ReadDataThread(path=self.OpenfilePath, delay="0.001")
-                self.thread1.progress.connect(self.viewProgressBar)
-        ################## Monitoring thread ##########################
-                self.thread2 = MonitoringThread(self.delay.text())
-                self.thread2.change_value.connect(self.presentData)
+                self.thread = ReadDataThread(path=self.OpenfilePath, outputFileOnOff=self.outputFileOnOff)
+                self.thread.progress.connect(self.viewProgressBar)
+                self.thread.finished.connect(self.presentData)
         #################### Start threads ############################
-                self.thread1.start()
-                self.thread2.start()
+                self.thread.start()
 
                 self.statuseMessage("Running")
 # ++++++++++++++++++++++++++++++ Stop +++++++++++++++++++++++++++++++++
@@ -1146,20 +1055,20 @@ class App(QMainWindow):
         global _Run
         _Run = False
         self.statuseMessage("Stop")
-# ++++++++++++++++++++++++ Set refresh time +++++++++++++++++++++++++++
-    def setRefreshTime(self):
-        try:
-            self.thread2.setRefreshTime(self.delay.text())
-        except AttributeError:
-            pass
 # ++++++++++++++++++++++++ Choose parameter +++++++++++++++++++++++++++
     def chooseParameter(self):
         self.selectedPar = self.parameterSelector.currentText()
         self.HistPlot.setXlabel(self.selectedPar)
         self.TwoDHistPlot.setYlabel(self.selectedPar)
+        self.presentData()
 # +++++++++++++++++++++++ Choose tiger Group ++++++++++++++++++++++++++
     def chooseTigerGroup(self):
         self.selectedTiger = self.tigerGroupSelector.currentText()
+        self.presentData()
+# ++++++++++++++++++++++ Selected strip changed +++++++++++++++++++++++
+    def selectedStripChanged(self):
+        self.selectedstrip = int(self.selectedCh.text())
+        self.presentData()
 # ++++++++++++++++++++++++++++ View data ++++++++++++++++++++++++++++++
     def presentData(self):
         ######### Check global buffer if contains data ################
@@ -1174,14 +1083,14 @@ class App(QMainWindow):
                         y1 = []
                         y2 = []
 
-                        for index in range(len(DATA['TIGER:0']['ch'])):
-                            if DATA['TIGER:0']['ch'][index] == int(self.selectedCh.text()):
-                                x1.append(DATA['TIGER:0']['ch'][index])
+                        for index in range(len(DATA['TIGER:0']['strip'])):
+                            if DATA['TIGER:0']['strip'][index] == int(self.selectedCh.text()):
+                                x1.append(DATA['TIGER:0']['strip'][index])
                                 y1.append(DATA['TIGER:0'][self.selectedPar][index])
 
-                        for index in range(len(DATA['TIGER:1']['ch'])):
-                            if DATA['TIGER:1']['ch'][index] == int(self.selectedCh.text()):
-                                x2.append(DATA['TIGER:1']['ch'][index])
+                        for index in range(len(DATA['TIGER:1']['strip'])):
+                            if DATA['TIGER:1']['strip'][index] == int(self.selectedCh.text()):
+                                x2.append(DATA['TIGER:1']['strip'][index])
                                 y2.append(DATA['TIGER:1'][self.selectedPar][index])
 
                     elif self.selectedTiger == 'TIGER(2-3)':
@@ -1191,14 +1100,14 @@ class App(QMainWindow):
                         y1 = []
                         y2 = []
 
-                        for index in range(len(DATA['TIGER:2']['ch'])):
-                            if DATA['TIGER:2']['ch'][index] == int(self.selectedCh.text()):
-                                x1.append(DATA['TIGER:2']['ch'][index])
+                        for index in range(len(DATA['TIGER:2']['strip'])):
+                            if DATA['TIGER:2']['strip'][index] == int(self.selectedCh.text()):
+                                x1.append(DATA['TIGER:2']['strip'][index])
                                 y1.append(DATA['TIGER:2'][self.selectedPar][index])
 
-                        for index in range(len(DATA['TIGER:3']['ch'])):
-                            if DATA['TIGER:3']['ch'][index] == int(self.selectedCh.text()):
-                                x2.append(DATA['TIGER:3']['ch'][index])
+                        for index in range(len(DATA['TIGER:3']['strip'])):
+                            if DATA['TIGER:3']['strip'][index] == int(self.selectedCh.text()):
+                                x2.append(DATA['TIGER:3']['strip'][index])
                                 y2.append(DATA['TIGER:3'][self.selectedPar][index])
                     
                     elif self.selectedTiger == 'TIGER(4-5)':
@@ -1209,34 +1118,34 @@ class App(QMainWindow):
                         y1 = []
                         y2 = []
 
-                        for index in range(len(DATA['TIGER:4']['ch'])):
-                            if DATA['TIGER:4']['ch'][index] == int(self.selectedCh.text()):
-                                x1.append(DATA['TIGER:4']['ch'][index])
+                        for index in range(len(DATA['TIGER:4']['strip'])):
+                            if DATA['TIGER:4']['strip'][index] == int(self.selectedCh.text()):
+                                x1.append(DATA['TIGER:4']['strip'][index])
                                 y1.append(DATA['TIGER:4'][self.selectedPar][index])
 
-                        for index in range(len(DATA['TIGER:5']['ch'])):
-                            if DATA['TIGER:5']['ch'][index] == int(self.selectedCh.text()):
-                                x2.append(DATA['TIGER:5']['ch'][index])
+                        for index in range(len(DATA['TIGER:5']['strip'])):
+                            if DATA['TIGER:5']['strip'][index] == int(self.selectedCh.text()):
+                                x2.append(DATA['TIGER:5']['strip'][index])
                                 y2.append(DATA['TIGER:5'][self.selectedPar][index])
 
                 else:
                     if self.selectedTiger == 'TIGER(0-1)':
-                        x1 = DATA['TIGER:0']['ch']
-                        x2 = DATA['TIGER:1']['ch']
+                        x1 = DATA['TIGER:0']['strip']
+                        x2 = DATA['TIGER:1']['strip']
 
                         y1 = DATA['TIGER:0'][self.selectedPar]
                         y2 = DATA['TIGER:1'][self.selectedPar]
                     
                     elif self.selectedTiger == 'TIGER(2-3)':
-                        x1 = DATA['TIGER:2']['ch']
-                        x2 = DATA['TIGER:3']['ch']
+                        x1 = DATA['TIGER:2']['strip']
+                        x2 = DATA['TIGER:3']['strip']
 
                         y1 = DATA['TIGER:2'][self.selectedPar]
                         y2 = DATA['TIGER:3'][self.selectedPar]
                     
                     elif self.selectedTiger == 'TIGER(4-5)':
-                        x1 = DATA['TIGER:4']['ch']
-                        x2 = DATA['TIGER:5']['ch']
+                        x1 = DATA['TIGER:4']['strip']
+                        x2 = DATA['TIGER:5']['strip']
 
                         y1 = DATA['TIGER:4'][self.selectedPar]
                         y2 = DATA['TIGER:5'][self.selectedPar]
@@ -1244,43 +1153,43 @@ class App(QMainWindow):
                 X = x1 + x2
                 Y = y1 + y2
             ################# Update active page ##########################
-                ############### Page 1 ################################
-                if self.tabs.currentIndex() == 0:
-                    self.HistPlot.updateHist(Y)
-                    self.TwoDHistPlot.update2dHist([X, Y])
-                ############### Page 2 ################################
-                elif self.tabs.currentIndex() == 1:
-                    if self.selectedTiger == 'TIGER(0-1)':
-                        tcoarse = DATA['TIGER:0']['tcoarse'] + DATA['TIGER:1']['tcoarse']
-                        ecoarse = DATA['TIGER:0']['ecoarse'] + DATA['TIGER:1']['ecoarse']
-                        tfine = DATA['TIGER:0']['tfine'] + DATA['TIGER:1']['tfine']
-                        efine = DATA['TIGER:0']['efine'] + DATA['TIGER:1']['efine']
-                    
-                    elif self.selectedTiger == 'TIGER(2-3)':
-                        tcoarse = DATA['TIGER:2']['tcoarse'] + DATA['TIGER:3']['tcoarse']
-                        ecoarse = DATA['TIGER:2']['ecoarse'] + DATA['TIGER:3']['ecoarse']
-                        tfine = DATA['TIGER:2']['tfine'] + DATA['TIGER:3']['tfine']
-                        efine = DATA['TIGER:2']['efine'] + DATA['TIGER:3']['efine']
-                    
-                    elif self.selectedTiger == 'TIGER(4-5)':
-                        tcoarse = DATA['TIGER:4']['tcoarse'] + DATA['TIGER:5']['tcoarse']
-                        ecoarse = DATA['TIGER:4']['ecoarse'] + DATA['TIGER:5']['ecoarse']
-                        tfine = DATA['TIGER:4']['tfine'] + DATA['TIGER:5']['tfine']
-                        efine = DATA['TIGER:4']['efine'] + DATA['TIGER:5']['efine']
+                self.HistPlot.updateHist(Y)
+                self.TwoDHistPlot.update2dHist([X, Y])
 
-                    self.TwoDHistPlot1.update2dHist([X, tcoarse])
-                    self.TwoDHistPlot2.update2dHist([X, ecoarse])
-                    self.TwoDHistPlot3.update2dHist([X, tfine])
-                    self.TwoDHistPlot4.update2dHist([X, efine])
-            ############### Clear global data buffer ######################
-                DATA.clear()
+                if self.selectedTiger == 'TIGER(0-1)':
+                    tcoarse = DATA['TIGER:0']['tcoarse'] + DATA['TIGER:1']['tcoarse']
+                    ecoarse = DATA['TIGER:0']['ecoarse'] + DATA['TIGER:1']['ecoarse']
+                    tfine = DATA['TIGER:0']['tfine'] + DATA['TIGER:1']['tfine']
+                    efine = DATA['TIGER:0']['efine'] + DATA['TIGER:1']['efine']
 
+                elif self.selectedTiger == 'TIGER(2-3)':
+                    tcoarse = DATA['TIGER:2']['tcoarse'] + DATA['TIGER:3']['tcoarse']
+                    ecoarse = DATA['TIGER:2']['ecoarse'] + DATA['TIGER:3']['ecoarse']
+                    tfine = DATA['TIGER:2']['tfine'] + DATA['TIGER:3']['tfine']
+                    efine = DATA['TIGER:2']['efine'] + DATA['TIGER:3']['efine']
+                
+                elif self.selectedTiger == 'TIGER(4-5)':
+                    tcoarse = DATA['TIGER:4']['tcoarse'] + DATA['TIGER:5']['tcoarse']
+                    ecoarse = DATA['TIGER:4']['ecoarse'] + DATA['TIGER:5']['ecoarse']
+                    tfine = DATA['TIGER:4']['tfine'] + DATA['TIGER:5']['tfine']
+                    efine = DATA['TIGER:4']['efine'] + DATA['TIGER:5']['efine']
+
+                self.Tcourse.update2dHist([X, tcoarse])
+                self.Ecoarse.update2dHist([X, ecoarse])
+                self.Tfine.update2dHist([X, tfine])
+                self.Efine.update2dHist([X, efine])
             except KeyError:
                 pass        
 # ++++++++++++++++++++++++ View ProgressBar +++++++++++++++++++++++++++
     def viewProgressBar(self, percent):
-        self.progressBar.setValue(percent)
-        self.progressBar.setFormat("%.02f %%" % percent)
+        self.progressBar.setValue(int(percent))
+        #self.progressBar.setFormat("%.02f %%" % percent)
+# +++++++++++++++++++ Save output file activation +++++++++++++++++++++
+    def saveOutputFile(self):
+        if self.saveOutputFileCheckBox.isChecked():
+            self.outputFileOnOff = True
+        else:
+            self.outputFileOnOff = False
 # +++++++++++++++++++++++++++ Test button +++++++++++++++++++++++++++++
     def test(self):
         print("test")
